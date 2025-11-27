@@ -1,13 +1,14 @@
 import os
-from flask import Flask, request, jsonify
+import subprocess
+import sys
+from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 import yt_dlp
 
 app = Flask(__name__)
-CORS(app)  # Allows your HTML file to talk to this Python script
+CORS(app)
 
-# Configure yt-dlp to find the best audio stream
-# UPDATED: Added anti-bot configuration
+# Search Configuration
 ydl_opts = {
     'format': 'bestaudio/best',
     'quiet': True,
@@ -23,36 +24,21 @@ ydl_opts = {
     'user_agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36',
 }
 
-def get_audio_url(query):
+def get_video_id(query):
+    """Finds the Video ID for a given query"""
     try:
-        # 1. Search for the video
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # REVERTED: Switched back to standard ytsearch which is more universally supported
-            # The extractor_args above will handle the bot protection
             search_query = f"ytsearch1:{query} official audio"
             info = ydl.extract_info(search_query, download=False)
             
             if 'entries' in info and len(info['entries']) > 0:
-                video_url = info['entries'][0]['url']
-                
-                # 2. Extract the actual stream URL from the specific video
-                # We need a new instance to get the direct stream link
-                ctx_opts = {
-                    'format': 'bestaudio/best',
-                    'quiet': True, 
-                    'noplaylist': True,
-                    'extractor_args': ydl_opts['extractor_args'] # Pass the anti-bot args here too
+                return {
+                    'id': info['entries'][0]['id'],
+                    'title': info['entries'][0]['title'],
+                    'duration': info['entries'][0].get('duration')
                 }
-                with yt_dlp.YoutubeDL(ctx_opts) as ctx:
-                    video_info = ctx.extract_info(video_url, download=False)
-                    return {
-                        'title': video_info.get('title'),
-                        'url': video_info.get('url'), # The direct audio stream
-                        'duration': video_info.get('duration')
-                    }
     except Exception as e:
-        print(f"Error: {e}")
-        return None
+        print(f"Search Error: {e}")
     return None
 
 @app.route('/search', methods=['GET'])
@@ -62,16 +48,60 @@ def search():
         return jsonify({'error': 'No query provided'}), 400
     
     print(f"Searching for: {query}")
-    result = get_audio_url(query)
+    info = get_video_id(query)
     
-    if result:
-        return jsonify(result)
+    if info:
+        # Return a URL pointing to OUR server's stream endpoint
+        # This bypasses the IP restriction because the server does the fetching
+        return jsonify({
+            'title': info['title'],
+            'url': f"{request.host_url}stream?v={info['id']}",
+            'duration': info['duration']
+        })
     else:
         return jsonify({'error': 'Not found'}), 404
 
+@app.route('/stream', methods=['GET'])
+def stream():
+    """
+    Proxies the audio stream using yt-dlp (like your command line example)
+    """
+    video_id = request.args.get('v')
+    if not video_id:
+        return "No video ID", 400
+
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+    def generate():
+        # Command: yt-dlp -o - -f bestaudio <url>
+        # streaming to stdout (-)
+        cmd = [
+            'yt-dlp', 
+            '-o', '-', 
+            '-f', 'bestaudio', 
+            '--quiet',
+            '--no-warnings',
+            video_url
+        ]
+        
+        # Start the process
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Read chunks and yield to client
+        try:
+            while True:
+                chunk = process.stdout.read(4096) # 4KB chunks
+                if not chunk:
+                    break
+                yield chunk
+        except Exception as e:
+            print(f"Stream Error: {e}")
+        finally:
+            process.terminate()
+
+    return Response(stream_with_context(generate()), mimetype='audio/mpeg')
+
 if __name__ == '__main__':
-    # Use the PORT environment variable if available (Render provides this)
     port = int(os.environ.get("PORT", 5000))
-    print(f"Starting Spotify Backend on port {port}")
-    # Listen on all addresses (0.0.0.0) so Render can reach the app
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Listen on all addresses
+    app.run(host='0.0.0.0', port=port)

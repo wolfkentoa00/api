@@ -27,8 +27,9 @@ def get_audio_url(query):
     try:
         # 1. Search for the video
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # UPDATED: Use YouTube Music search for better stability
-            search_query = f"ytmusicsearch1:{query}"
+            # REVERTED: Switched back to standard ytsearch which is more universally supported
+            # The extractor_args above will handle the bot protection
+            search_query = f"ytsearch1:{query} official audio"
             info = ydl.extract_info(search_query, download=False)
             
             if 'entries' in info and len(info['entries']) > 0:

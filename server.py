@@ -7,20 +7,28 @@ app = Flask(__name__)
 CORS(app)  # Allows your HTML file to talk to this Python script
 
 # Configure yt-dlp to find the best audio stream
+# UPDATED: Added anti-bot configuration
 ydl_opts = {
     'format': 'bestaudio/best',
     'quiet': True,
     'no_warnings': True,
     'noplaylist': True,
-    'extract_flat': True, # Faster search
+    'extract_flat': True,
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android', 'web'],
+            'player_skip': ['js'],
+        }
+    },
+    'user_agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36',
 }
 
 def get_audio_url(query):
     try:
         # 1. Search for the video
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Search for 1 result
-            search_query = f"ytsearch1:{query} official audio"
+            # UPDATED: Use YouTube Music search for better stability
+            search_query = f"ytmusicsearch1:{query}"
             info = ydl.extract_info(search_query, download=False)
             
             if 'entries' in info and len(info['entries']) > 0:
@@ -31,7 +39,8 @@ def get_audio_url(query):
                 ctx_opts = {
                     'format': 'bestaudio/best',
                     'quiet': True, 
-                    'noplaylist': True
+                    'noplaylist': True,
+                    'extractor_args': ydl_opts['extractor_args'] # Pass the anti-bot args here too
                 }
                 with yt_dlp.YoutubeDL(ctx_opts) as ctx:
                     video_info = ctx.extract_info(video_url, download=False)

@@ -51,11 +51,11 @@ def search():
     info = get_video_id(query)
     
     if info:
-        # Return a URL pointing to OUR server's stream endpoint
-        # This bypasses the IP restriction because the server does the fetching
+        # Force HTTPS for the return URL to prevent Mixed Content errors
+        base_url = request.host_url.replace('http://', 'https://')
         return jsonify({
             'title': info['title'],
-            'url': f"{request.host_url}stream?v={info['id']}",
+            'url': f"{base_url}stream?v={info['id']}",
             'duration': info['duration']
         })
     else:
@@ -73,12 +73,11 @@ def stream():
     video_url = f"https://www.youtube.com/watch?v={video_id}"
 
     def generate():
-        # Command: yt-dlp -o - -f bestaudio <url>
-        # streaming to stdout (-)
+        # FORCE M4A format for compatibility with all browsers (Safari/iOS especially)
         cmd = [
             'yt-dlp', 
             '-o', '-', 
-            '-f', 'bestaudio', 
+            '-f', 'bestaudio[ext=m4a]/best', 
             '--quiet',
             '--no-warnings',
             video_url
@@ -99,7 +98,8 @@ def stream():
         finally:
             process.terminate()
 
-    return Response(stream_with_context(generate()), mimetype='audio/mpeg')
+    # Use proper audio/mp4 mime type
+    return Response(stream_with_context(generate()), mimetype='audio/mp4')
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
